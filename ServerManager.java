@@ -8,134 +8,145 @@
 
 import java.io.*;
 import java.net.*;
+import java.security.PrivateKey;
+import java.text.DateFormat;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 
 public class ServerManager implements Runnable {
     private ServerSocket serverSocket ;
     private Socket connectionSocket ;
     private boolean running;
+    String currentDirectory ;
+    private String serverName, connectionType, date, lastModified, contentType, contentLength ;
 
 
     ServerManager( Socket connectionSocket ) {
-
+        currentDirectory = System.getProperty("user.dir");
         running = true ;
         this.connectionSocket = connectionSocket ;
+        date =  "Date: " + new SimpleDateFormat("dd/MM/yyyy HH:mm:ss").format(new Date()) + '\n';
+        serverName =  "Server: " + "Custom Server" + " (Unix) (Red-Hat/Linux)" + '\n';
+        lastModified =  "Last-Modified: " ;
+        contentType = "Content-Type: text/html; charset=UTF-8" + '\n';
+        contentLength = "Content-Length: " ;
+        connectionType = "Connection: " ;
     }
 
-    public String readSocket() {
-        String message = new String() ;
+    public void run() {
         try {
-            BufferedReader inFromClient =
-                    new BufferedReader(new InputStreamReader(connectionSocket.getInputStream()));
-            message = inFromClient.readLine() ;
-        }
-        catch ( IOException ioEx ) {
-            System.out.println("Server:Socket Read Error !!") ;
-        }
-        return message ;
-    }
+             BufferedReader inFromServer = new BufferedReader(new InputStreamReader(connectionSocket.getInputStream()));
+             int bufferSize = connectionSocket.getInputStream().available() ;
+             char[] buffer = new char[bufferSize] ;
+             inFromServer.read(buffer,0,bufferSize) ;
+             String htmlHeader = new String (buffer) ;
+             if ( htmlHeader.startsWith("GET") )
+                 serveGET(htmlHeader) ;
+            else if ( htmlHeader.startsWith("POST") )
+                 servePOST(htmlHeader) ;
+        } catch (IOException e) {
 
-    public void writeSocket( String message ) {
-        try {
-            DataOutputStream outToClient = new DataOutputStream(connectionSocket.getOutputStream());
-            outToClient.flush();
-            outToClient.writeBytes(message);
-        }
-        catch ( IOException ioEx ) {
-            System.out.println("Server:Socket Write Error !!");
         }
     }
-    public void closeSocket() {
+    public void serveGET ( String htmlHeader ) {
+
+        System.out.println (htmlHeader) ;
+
+        int startPosition, endPosition;
+        String fileName = new String() ;
+        startPosition = htmlHeader.indexOf('/') ;
+        endPosition = htmlHeader.indexOf("HTTP")-1;
+        fileName = htmlHeader.substring(startPosition,endPosition);
+        File file = new File( currentDirectory+"/files"+fileName ) ;
+        if ( file.exists() ) {
+            try {
+                String lastModified = new SimpleDateFormat("dd/MM/yyyy HH:mm:ss").format( new Date( file.lastModified() ) ) ;
+                long fileLength = file.length();
+                BufferedReader bufferedReader = new BufferedReader( new FileReader(file));
+                PrintWriter printWriter = new PrintWriter(connectionSocket.getOutputStream(),true);
+                String buffer = "" ;
+
+                printWriter.print(get200Header(fileLength,lastModified,"close"));
+
+                while ( ( buffer = bufferedReader.readLine() ) != null )
+                    printWriter.println(buffer);
+
+                bufferedReader.close();
+                printWriter.close();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+        else {
+            try {
+                PrintWriter printWriter = new PrintWriter(connectionSocket.getOutputStream(),true);
+                System.out.print(get404Header("close"));
+                printWriter.print(get404Header("close"));
+                printWriter.close();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
         try {
             connectionSocket.close();
-            serverSocket.close();
-        } catch (IOException ioEx) {
-            System.out.println("Server:Socket Closing Error !!");
+        } catch (IOException e) {
+            e.printStackTrace();
         }
     }
-    public Socket getSocket() {
-        return connectionSocket ;
-    }
-    public void run() {
-        while(running) {
-            String message = this.readSocket() ;
-            if ( message.equals("exit") ) {
-                running = false ;
-                continue;
-            }
-            else if ( message.startsWith("get") ) {
-                System.out.print(Thread.currentThread().toString());
-                System.out.println( "Client: Requested " + message.substring(4) ) ;
-
-                File file = new File(message.substring(4)) ;
-                if ( file.exists() ) {
-                    this.writeSocket( "Sending " + file.length() + '\n');
-                    this.sendFile(file);
-                }
-                else {
-                    final String dir = System.getProperty("user.dir");
-                    this.writeSocket("You wanted :"+message.substring(4) +"File Not Found in "+dir+'\n') ;
-                }
-            }
-            else if ( message.startsWith("post") ) {
-                this.writeSocket( "Ok, send file " + '\n');
-                String reply = this.readSocket() ;
-                if ( reply.startsWith("posting") )   {
-                    System.out.println(Integer.parseInt(reply.substring(8))) ;
-                    this.getFile( Integer.parseInt(reply.substring(8)) ) ;
-                }
-                else
-                    System.out.println("Client Says:[" + reply + "]");
-            }
-            else
-                System.out.println("Client Says:[" + message + "]");
-        }
-    }
-    public void shutDown() {
-        running = false ;
-    }
-    public void sendFile ( File file ) {
-
+    public void servePOST (  String htmlHeader ) {
         try {
-            BufferedWriter outToClient = new BufferedWriter(new OutputStreamWriter(connectionSocket.getOutputStream()));
-            FileReader fileReader = new FileReader(file) ;
-
-            char[] buffer = new char[(int) file.length()] ;
-            fileReader.read(buffer,0, (int) file.length()) ;
-
-            outToClient.flush();
-            outToClient.write(buffer, 0, (int) file.length());
-            Thread.sleep(2000);
-            outToClient.flush();
-            fileReader.close();
-
-        } catch (IOException ioEx) {
-            System.out.println("Server:File Write Error(IO) !!");
-        } catch (InterruptedException iEx) {
-            System.out.println("Server:File Write Error(Interrupt) !!");
+            PrintWriter printWriter = new PrintWriter(connectionSocket.getOutputStream(),true);
+            String userName = htmlHeader.substring(htmlHeader.indexOf("user=")+5) ;
+            String lastModified = new SimpleDateFormat("dd/MM/yyyy HH:mm:ss").format(new Date()) ;
+            printWriter.print(get200Header(100+userName.length(),lastModified,"close"));
+            String response ="<html>" +
+            "<head>\n"   +
+            "<title>Your POST Response</title>\n"  +
+            "</head>\n"  +
+            "<body>\n"  +
+                    "<h1>Hello " + userName + "</h1>\n" +
+                    "<h1>How Are You?</h1>\n"  +
+            "</body>\n" +
+            "</html>\n"  + '\n'   ;
+            printWriter.print(response);
+            printWriter.close();
+        } catch (IOException e) {
+            e.printStackTrace();
+        } finally {
+            try {
+                connectionSocket.close();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
         }
     }
-
-    public void getFile ( int size ) {
-        try {
-            BufferedReader inFromServer = new BufferedReader(new InputStreamReader(connectionSocket.getInputStream()));
-            int readSize = 0 ;
-            int t = 0 ;
-            String htmlFile = "" ;
-            while ( readSize < size && t++ < 10) {
-                Thread.sleep(500);
-                int bufferSize = connectionSocket.getInputStream().available() ;
-                char[] buffer = new char[bufferSize] ;
-                inFromServer.read(buffer,0,bufferSize) ;
-                if ( bufferSize > 0 ) {
-                    htmlFile += new String (buffer) ;
-                }
-                readSize += bufferSize ;
-            }
-          System.out.println(htmlFile);
-        } catch (IOException ioEx) {
-            System.out.println("Server:File Write Error(IO) !!");
-        } catch (InterruptedException iEx) {
-            System.out.println("Server:File Write Error(Interrupt) !!");
-        }
+    private String get200Header( long contentLength ,String lastModified ,String connectionType ) {
+         String reply =  "HTTP/1.1 200 OK" + '\n'
+                 + this.date
+                 + this.serverName
+                 + this.lastModified + lastModified + '\n'
+                 + this.contentType
+                 + this.contentLength + contentLength + '\n'
+                 + this.connectionType + connectionType + '\n'
+                 + '\n' ;
+        System.out.print(reply);
+        return reply ;
+    }
+    private String get404Header( String connectionType ) {
+        String reply =  "HTTP/1.1 404 Not Found" + '\n'
+                + this.date
+                + this.serverName
+                + this.contentType
+                + this.connectionType + connectionType + '\n'
+                + '\n'
+                + "<html>\n" +
+                "<head>\n" +
+                "  <title>404 Not Found</title>\n" +
+                "</head>\n" +
+                "<body><h1>\n" +
+                "  Error 404: Content Not Found!!\n" +
+                "</h1></body>\n" +
+                "</html>\n";
+        return reply ;
     }
 }
