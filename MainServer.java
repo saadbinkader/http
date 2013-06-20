@@ -19,31 +19,24 @@ public class MainServer {
         Socket connectionSocket = null;
         ThreadPoolExecutor threadPool = null;
         ServerManager serverManager ;
-        final int maxThreadPoolSize = 2;
+        final int maxThreadPoolSize = 9;
         BlockingQueue<Runnable> queue = new ArrayBlockingQueue<Runnable>(10);
 
-        try {
-            serverSocket = new ServerSocket(6789) ;
-            threadPool = new ThreadPoolExecutor(0,maxThreadPoolSize,1,TimeUnit.SECONDS,queue);
-        } catch ( IOException ioEx) {
-
-        }
+        threadPool = new ThreadPoolExecutor(0,maxThreadPoolSize,1,TimeUnit.SECONDS,queue);
 
         while ( true ) {
            try {
+               serverSocket = new ServerSocket(6789) ;
                connectionSocket = serverSocket.accept() ;
                BufferedReader inFromClient =
                        new BufferedReader(new InputStreamReader(connectionSocket.getInputStream()));
                serverManager = new ServerManager( connectionSocket ) ;
                Thread thread = new Thread( serverManager );
                if ( threadPool.getPoolSize() < maxThreadPoolSize ) {
-                  System.out.println("Served ["+inFromClient.readLine()+"]");
-                  serverManager.writeSocket("Server:Server Connected!!"+'\n');
                   threadPool.execute(thread);
-
                }
                else {
-                   serverManager.writeSocket("Server:Server Busy!!"+'\n');
+                  System.out.println("Server:Server Busy!!"+'\n');
                    thread.interrupt();
                }
                System.out.println("Thread Pool Size : " + threadPool.getPoolSize());
