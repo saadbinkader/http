@@ -7,23 +7,18 @@
  */
 
 import java.io.*;
-import java.net.*;
-import java.security.PrivateKey;
-import java.text.DateFormat;
+import java.net.Socket;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 
 public class ServerManager implements Runnable {
-    private ServerSocket serverSocket ;
     private Socket connectionSocket ;
-    private boolean running;
     String currentDirectory ;
     private String serverName, connectionType, date, lastModified, contentType, contentLength ;
 
 
     ServerManager( Socket connectionSocket ) {
         currentDirectory = System.getProperty("user.dir");
-        running = true ;
         this.connectionSocket = connectionSocket ;
         date =  "Date: " + new SimpleDateFormat("dd/MM/yyyy HH:mm:ss").format(new Date()) + '\n';
         serverName =  "Server: " + "Custom Server" + " (Unix) (Red-Hat/Linux)" + '\n';
@@ -45,7 +40,7 @@ public class ServerManager implements Runnable {
             else if ( htmlHeader.startsWith("POST") )
                  servePOST(htmlHeader) ;
         } catch (IOException e) {
-
+           e.printStackTrace();
         }
     }
     public void serveGET ( String htmlHeader ) {
@@ -95,19 +90,51 @@ public class ServerManager implements Runnable {
     }
     public void servePOST (  String htmlHeader ) {
         try {
+            System.out.println(htmlHeader);
             PrintWriter printWriter = new PrintWriter(connectionSocket.getOutputStream(),true);
-            String userName = htmlHeader.substring(htmlHeader.indexOf("user=")+5) ;
             String lastModified = new SimpleDateFormat("dd/MM/yyyy HH:mm:ss").format(new Date()) ;
-            printWriter.print(get200Header(100+userName.length(),lastModified,"close"));
+
             String response ="<html>" +
             "<head>\n"   +
             "<title>Your POST Response</title>\n"  +
             "</head>\n"  +
-            "<body>\n"  +
-                    "<h1>Hello " + userName + "</h1>\n" +
-                    "<h1>How Are You?</h1>\n"  +
-            "</body>\n" +
-            "</html>\n"  + '\n'   ;
+            "<body>\n"  ;
+            int startPosition = 0, endPosition ;
+            boolean gotFormattedData = false;
+            while ( ( startPosition = htmlHeader.indexOf("name=",startPosition) ) != -1 ) {
+                gotFormattedData = true ;
+                startPosition += 6;
+                endPosition = htmlHeader.indexOf('\"',startPosition) ;
+                String name = htmlHeader.substring(startPosition,endPosition);
+                startPosition = endPosition+5;
+                endPosition = htmlHeader.indexOf('\n',startPosition+1);
+                String value = htmlHeader.substring(startPosition,endPosition-1) ;
+                response += "<h1>Field Name:["+name+"] Value:[" + value +  "]</h1>" ;
+            }
+            if(!gotFormattedData) {
+                startPosition = htmlHeader.length()-1;
+                while( htmlHeader.charAt(startPosition-1) != '\n' ) startPosition-- ;
+                String parameter = htmlHeader.substring(startPosition);
+                startPosition = 0 ;
+                while ( ( endPosition = parameter.indexOf('=',startPosition) ) != -1 ) {
+                    String name = parameter.substring(startPosition,endPosition);
+                    String value = "" ;
+                    startPosition = endPosition+1 ;
+                    if ( ( endPosition = parameter.indexOf('&',startPosition) ) == -1 ) {
+                        value = parameter.substring(startPosition) ;
+                        startPosition = parameter.length() ;
+                    }
+                    else {
+                        value = parameter.substring(startPosition,endPosition) ;
+                        startPosition = endPosition + 1;
+                    }
+                    response += "<h1>Field Name:["+name+"] Value:[" + value +  "]</h1>" ;
+                }
+            }
+            response +=
+                    "</body>\n" +
+                    "</html>\n"  + '\n'   ;
+            printWriter.print(get200Header(response.length(),lastModified,"close"));
             printWriter.print(response);
             printWriter.close();
         } catch (IOException e) {
